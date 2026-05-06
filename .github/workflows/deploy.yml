@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION:  ${{ vars.AWS_REGION || 'us-east-1' }}
+  AWS_REGION:  ${{ vars.AWS_REGION || 'us-east-2' }}
   ECR_REPO:    myapp-dev/backend
   ECS_CLUSTER: myapp-dev-cluster
   ECS_SERVICE: myapp-dev-service
@@ -49,17 +49,14 @@ jobs:
             --task-definition "$ECS_SERVICE" \
             --query taskDefinition --output json)
 
-          NEW_TASK_DEF=$(echo "$TASK_DEF" | python3 -c "
-import sys, json
-td = json.load(sys.stdin)
-for c in td['containerDefinitions']:
-    if c['name'] == '$CONTAINER':
-        c['image'] = '$IMAGE'
-for k in ['taskDefinitionArn','revision','status','requiresAttributes',
-          'compatibilities','registeredAt','registeredBy','deregisteredAt']:
-    td.pop(k, None)
-print(json.dumps(td))
-")
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \
+            --arg IMAGE "$IMAGE" \
+            --arg CONTAINER "$CONTAINER" \
+            'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,
+                 .compatibilities,.registeredAt,.registeredBy,.deregisteredAt) |
+             .containerDefinitions |= map(
+               if .name == $CONTAINER then .image = $IMAGE else . end)')
+
           NEW_ARN=$(aws ecs register-task-definition \
             --cli-input-json "$NEW_TASK_DEF" \
             --query 'taskDefinition.taskDefinitionArn' --output text)
